@@ -1,0 +1,55 @@
+
+CoreCrushers - A GAD Utility. 
+
+Written by Gary A. Donahue in 2016. gad@gad.net
+
+CoreCrushers is a utility that is designed to consume CPU cores on Linux system. 
+
+This was written because I wrote a cool graphical CPU reporting tool (cpuhist)
+and needed a way to consume CPU resources in order to test it. In my research, 
+I discovererd the folloing bit of evil bash scriptery (commented for your 
+protection): 
+
+   #    for i in 1 ; do while : ; do : ; done & done
+
+This manages to consume a CPU core at 100% until broken. My script just wraps 
+that up into a more usable package. By changing the 'for i in 1' loop to 
+'for i in $CORES', more than one core may be consumed. 
+
+Note that these processes (one per core) are submitted for background 
+processing!
+
+I wrote this to be self-limiting because every time I used it, I ended up 
+forgetting it was running only to get CPU utilization alerts from my systems. 
+Thus, you must specify the number of seconds to crush cores or it will exit.
+
+Though far from perfect, this tool writes a file in /tmp called 
+corecrusher.status which conatins the number of cores being crushed, 
+the number of seconds to crush, and a timestamp from when the task was 
+initialized. It looks like this (example: 1 core, 50 seconds): 
+
+   CCCORES=1
+   CCSECS=50
+   CCSTART=1462794103
+
+corecrusher status will report something like this given that file: 
+
+[gad@Cozy CoreCrusher]$ ./corecrusher status
+
+   CPU cores being crushed: 1
+     Crush time configured: 50
+     Seconds left to crush: 27
+
+To end corecrushing, use 'corecrusher stop'
+
+When the corecrushers are initiated (one per core) a subprocess is kicked 
+off that sleeps for $CCSECS. When it wakes up, it does a kill -v on all 
+corecrushers including itself. Since all processes and subprocesses end up 
+being named corecrushers, this usually works. The 'corecrusher kill' option 
+is there if they don't. 
+
+Note that logging off will not stop the corecrushers from running. The 
+status file will remain after logoff, so logging back in and using corecrusher 
+stop should work. 
+
+

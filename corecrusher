@@ -1,0 +1,243 @@
+#!/bin/bash
+
+# This is yet another GAD Utility - Gary A. Donahue, 2016
+
+### !!! DO NOT USE THIS SCRIPT IN PRODUCTION !!! ###
+### !!! This script will consume 100% CPU !!! ###
+
+# Usage: corecruser #cores-to-crush #seconds-to-crush-them
+#        corecruser help
+#        corecruser stop
+#        corecruser status
+#        corecruser install
+
+STATFILE="/tmp/corecrushers.status"
+CORES=$1
+SECS=$2
+MAXSECS=3600
+NUMARGS=$#
+NUMCORES=$(grep -c ^processor /proc/cpuinfo)
+
+# Validate arguments
+if [[ $NUMARGS -lt 2 ]]; then
+
+   # If we're here, then only one arg given - figure it out
+   case "$CORES" in 
+
+      stop | --stop ) 
+
+         # Remove STATFile - have to do this before we kill ourselves
+         echo
+         echo "Removing $STATFILE"
+         rm $STATFILE
+         echo 
+         # Kill already running corecrushers
+         echo "Attempting to stop all corecrusher sub-processes..."
+         echo
+         killall -v corecrusher
+         # last command kills even this script, so no point printing anything
+         echo
+         exit
+         ;;
+
+      kill | --kill )
+         echo
+         echo "W A R N I N G!"
+         echo
+         echo "This option will use sudo and kill -9 for all corecrushers"
+         echo "   system-wide. If you have anything called 'corecrusher'"
+         echo "   running that is not from this script, this will kill it."
+         echo
+         read -n 1 -p "Are you sure? [y/N]" YESNO
+         echo
+         if [[ $YESNO = "y" ]] || [[ $YESNO = "Y" ]]; then         
+            # Remove STATFile - have to do this before we kill ourselves
+            echo
+            echo "Removing $STATFILE"
+            rm $STATFILE
+            echo 
+            # Kill already running corecrushers
+            echo "Attempting to kill  all corecrusher sub-processes..."
+            echo
+            sudo killall -9 -v corecrusher
+            # last command kills even this script, so no point printing anything else
+            echo
+            exit
+         fi
+         ;;
+
+      status | --status )
+
+         # report how many cores being crushed, and for how long
+         if [[ -e $STATFILE ]]; then
+            source $STATFILE
+         else
+            echo
+            echo "Corecrusher not running."
+            echo
+            exit
+         fi
+         NOW=$(date +%s)
+         SECSELAPSED=$(($NOW-$CCSTART))
+         SECSLEFT=$(($CCSECS-$SECSELAPSED))
+         echo 
+         echo "   CPU cores being crushed: $CCCORES"
+         echo "     Crush time configured: $CCSECS"
+         echo "     Seconds left to crush: $SECSLEFT"
+         echo
+         echo "To end corecrushing, use 'corecrusher stop'"
+         echo
+         exit
+         ;;
+
+      install | --install )
+    
+         # This installs CLI commands and /usr/bin/local symbolic link
+         # as well as web page directory
+   
+         echo
+         if [[ -L "/usr/local/bin/corecrusher" ]]; then
+            echo "corecrusher link already in place - bypassing."
+         else
+            echo -n "Installing /usr/local/bin alias for corecrusher..."
+            sudo ln -sf $PROGDIR/corecrusher /usr/local/bin/corecrusher
+            echo "Done."
+         fi
+         ;;
+     
+      * )
+ 
+         # not enough arguments given (or help of some kind requested)
+         echo
+         echo "  This tool will \"crush\" (peg at 100%) any number of CPU cores on a"
+         echo "  Linux system. It was written to test GAD's cpuhist tool, but"
+         echo "  is made available for your testing and core-crushing pleasure. "
+         echo 
+         echo "  The script will exit if you try to kill more cores than are"
+         echo "  available on the system."
+         echo
+         echo "  Usage: "
+         echo
+         echo "     corecrusher cores seconds"
+         echo 
+         echo "         Crush <cores> for <seconds>. This will peg the number of CPU"
+         echo "         specified by <cores> at 100% utilization for the number of "
+         echo "         seconds specified by <seconds>"
+         echo
+         echo "         To crush two cores for 10 seconds:        corecrusher 2 10"
+         echo 
+         echo "     corecrusher [ stop | --stop ]"
+         echo 
+         echo "         This will delete the status file in /tmp, then attempt to "
+         echo "         gracefully end all corecrusher subprocesses initiated by this" 
+         echo "         shell."
+         echo
+         echo "     corecrusher [ kill | --kill ]"
+         echo 
+         echo "         This will delete the status file in /tmp, then attempt to "
+         echo "         kill all corecrusher subprocesses anywhere on the system, even"
+         echo "         if initiated by other shells. Requires sudo powers."
+         echo
+         echo "     corecrusher [ status | --status ]"
+         echo 
+         echo "         Display the status of corecrushers."
+         echo
+         echo "     corecrusher [ install | --install ]"
+         echo 
+         echo "         Install corecrusher as a system-wide utility."
+         echo
+         exit
+         ;;
+      esac
+
+elif [[ $NUMARGS -gt 2 ]]; then
+   # Too many arguments given
+   echo
+   echo "Usage: corecrusher #cores-to-crush #seconds-to-crush-them"
+   echo
+   exit
+else
+   # 2 arguments given
+   # Check if already running
+   if [[ -e $STATFILE ]]; then
+      echo 
+      echo "corecrusher already running."
+      echo "Use 'corecrusher status' to see status."
+      echo
+      exit
+   else
+      CCSTART=$(date +%s)
+   fi
+   RE='^[0-9]+$'
+   # Validate $1 is integer
+   if ! [[ $CORES =~ $RE ]]; then
+      echo
+      echo "Number of cores must be an integer" >&2
+      echo
+      echo "   try corecrusher --help"
+      echo
+      exit 1
+   else
+      # Check if system has that many cores (hyperthreaded too)
+      if [[ $CORES -gt $NUMCORES ]]; then
+         echo
+         echo "Number of cores specified exceeds system capacity ($NUMCORES)" >&2
+         echo
+         echo "   try corecrusher --help"
+         echo
+         exit 1
+      else
+         # Validate $2 is integer
+         if ! [[ $SECS =~ $RE ]]; then
+            echo
+            echo "Seconds must be an integer" >&2
+            echo
+            echo "   try corecrusher --help"
+            echo
+            exit 1
+         else
+            # Limit to $MAXSECS (Usually 5 mins)
+            if [[ $SECS -gt $MAXSECS ]]; then
+               echo
+               echo "Cannot crush for more than $MAXSECS seconds" >&2
+               echo
+               echo "   try corecrusher --help"
+               echo
+               exit 1
+            else
+               # Passed all tests - perform the ritual!
+               echo
+               echo "To stop corecrusher before the configured time, use the following command: "
+               echo
+               echo "   corecrusher stop"
+               echo
+               echo "Crushing $CORES core(s) for $SECS second(s)"
+               echo
+               echo -e "CCCORES=$CORES\nCCSECS=$SECS\nCCSTART=$CCSTART"  > $STATFILE
+               
+               #-------- This is where the evil happens ----------#
+
+               # This little script loads a core to 100%. 
+               #    for i in 1 ; do while : ; do : ; done & done
+
+               for i in $(seq 1 $CORES);     # Load this many cores (effectively)
+                  do while : ;               # While endless loop
+                     do : ;                  # Execute the null (:) command
+                  done &                     # Sumbit to background  
+               done                          # Forgive us for what we've done
+
+               #--------------------------------------------------#
+               
+               # Spawn a subshell that sleeps for $SECS then wakes up and kills all corecrushers.
+               #       Sadly, it also kills itself which makes priting output problematic.
+               
+               (sleep "$SECS"; \ 
+                echo "Removing stat file... "; \
+                rm "$STATFILE"; \
+                echo; echo; echo "Killing corecrushers..."; echo; \
+                killall -v corecrusher ) &
+             fi
+          fi
+       fi
+   fi
+fi
